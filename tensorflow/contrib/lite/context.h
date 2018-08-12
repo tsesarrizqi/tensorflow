@@ -40,6 +40,8 @@ limitations under the License.
 extern "C" {
 #endif  // __cplusplus
 
+#include "CL/cl.h"
+
 typedef enum { kTfLiteOk = 0, kTfLiteError = 1 } TfLiteStatus;
 
 // The list of external context types known to TF Lite. This list exists solely
@@ -434,6 +436,10 @@ typedef struct _TfLiteRegistration {
   // Note: It is the responsibility of the registration binder to set this
   // properly.
   int version;
+
+  // init with OpenCL
+  void* (*initopencl)(TfLiteContext* context, const char* buffer, size_t length, 
+                        cl_context context_cl, cl_command_queue queue, cl_program program, cl_mem cl_mem_arr[6]);
 } TfLiteRegistration;
 
 // WARNING: This is an experimental interface that is subject to change.

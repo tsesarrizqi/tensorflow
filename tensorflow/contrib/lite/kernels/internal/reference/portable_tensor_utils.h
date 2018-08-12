@@ -19,6 +19,8 @@ limitations under the License.
 // structure.
 #include "tensorflow/contrib/lite/builtin_op_data.h"
 
+#include "CL/cl.h"
+
 #if defined(_MSC_VER)
 #define __restrict__ __restrict
 #endif
@@ -42,6 +44,14 @@ void PortableMatrixBatchVectorMultiplyAccumulate(const float* matrix,
                                                  const float* vector,
                                                  int n_batch, float* result,
                                                  int result_stride);
+
+// with OpenCL
+void PortableMatrixBatchVectorMultiplyAccumulateOpenCL(const float* matrix,
+                                                 int m_rows, int m_cols,
+                                                 const float* vector,
+                                                 int n_batch, float* result,
+                                                 int result_stride,
+                                                 cl_context context_cl, cl_command_queue queue, cl_program program, cl_mem cl_mem_arr[6]);
 
 void PortableMatrixBatchVectorMultiplyAccumulate(
     const int8_t* __restrict__ matrix, const int m_rows, const int m_cols,
@@ -139,6 +149,17 @@ void MatrixBatchVectorMultiplyAccumulate(const float* matrix, int m_rows,
                                          int result_stride) {
   PortableMatrixBatchVectorMultiplyAccumulate(matrix, m_rows, m_cols, vector,
                                               n_batch, result, result_stride);
+}
+
+// with OpenCL
+void MatrixBatchVectorMultiplyAccumulateOpenCL(const float* matrix, int m_rows,
+                                         int m_cols, const float* vector,
+                                         int n_batch, float* result,
+                                         int result_stride,
+                                         cl_context context_cl, cl_command_queue queue, cl_program program, cl_mem cl_mem_arr[6]) {
+  PortableMatrixBatchVectorMultiplyAccumulateOpenCL(matrix, m_rows, m_cols, vector,
+                                              n_batch, result, result_stride,
+                                              context_cl, queue, program, cl_mem_arr);
 }
 
 void MatrixBatchVectorMultiplyAccumulate(

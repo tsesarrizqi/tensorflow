@@ -28,6 +28,11 @@ limitations under the License.
 #include "tensorflow/contrib/lite/memory_planner.h"
 #include "tensorflow/contrib/lite/profiling/profiler.h"
 
+#include <android/log.h> 
+#include <stdio.h> 
+
+#include "CL/cl.h"
+
 namespace tflite {
 
 // Map statically from a c++ type to a TfLiteType (used below for safe casts).
@@ -145,6 +150,15 @@ class Interpreter {
                                      const char* init_data,
                                      size_t init_data_size, void* builtin_data,
                                      const TfLiteRegistration* registration,
+                                     int* node_index = nullptr);
+
+  // with OpenCL
+  TfLiteStatus AddNodeWithParametersOpenCL(const std::vector<int>& inputs,
+                                     const std::vector<int>& outputs,
+                                     const char* init_data,
+                                     size_t init_data_size, void* builtin_data,
+                                     const TfLiteRegistration* registration,
+                                     cl_context context_cl, cl_command_queue queue, cl_program program, cl_mem cl_mem_arr[6],
                                      int* node_index = nullptr);
 
   // Adds `tensors_to_add` tensors, preserving pre-existing Tensor entries.
@@ -429,6 +443,16 @@ class Interpreter {
                size_t length) {
     if (op_reg.init == nullptr) return nullptr;
     return op_reg.init(&context_, buffer, length);
+  }
+
+  // with OpenCL
+  void* OpInitOpenCL(const TfLiteRegistration& op_reg, const char* buffer,
+               size_t length,
+               cl_context context_cl, cl_command_queue queue, cl_program program, cl_mem cl_mem_arr[6]) {
+    if (op_reg.initopencl == nullptr) {
+      return nullptr;
+    }
+    return op_reg.initopencl(&context_, buffer, length, context_cl, queue, program, cl_mem_arr);
   }
 
   // Let 'op_reg' release any memory it might have allocated via 'OpInit'.

@@ -22,6 +22,26 @@ limitations under the License.
 #include "tensorflow/contrib/lite/kernels/internal/optimized/tensor_utils_impl.h"
 #include "tensorflow/contrib/lite/kernels/internal/round.h"
 
+#include "CL/cl.h"
+
+#include <string>
+#include <cstring>
+#include <fstream>
+#include <iostream>
+#include <vector>
+#include <android/log.h> 
+#include <stdio.h> 
+#include <stdlib.h> 
+#include <math.h>
+#include <sys/stat.h>
+#include <vector>
+#include <assert.h>
+#include <stdexcept>
+#include <cmath>
+#include <time.h>
+#include <sys/time.h>
+
+
 #ifdef USE_NEON
 
 #define kFloatWeightsPerNeonLane 4
@@ -82,6 +102,109 @@ void NeonMatrixBatchVectorMultiplyAccumulate(const float* matrix, int m_rows,
       result_in_batch += result_stride;
     }
   }
+}
+
+size_t matmulWgHeight = 8;
+size_t matmulWgWidth = 32;
+
+void NeonMatrixBatchVectorMultiplyAccumulateOpenCL(const float* matrix, int m_rows,
+                                             int m_cols, const float* vector,
+                                             int n_batch, float* result,
+                                             int result_stride,
+                                             cl_context context_cl, cl_command_queue queue, cl_program program, cl_mem cl_mem_arr[6]) {
+
+  cl_mem d_a = cl_mem_arr[0];
+  cl_mem d_b = cl_mem_arr[1];
+  cl_mem d_c = cl_mem_arr[3];
+
+  int matrixsize = m_rows*m_cols*sizeof(float);
+  int vectorsize = m_cols*n_batch*sizeof(float);
+  int resultsize = m_rows*n_batch*sizeof(float);
+
+  int d_n_batch = (((n_batch-1)/4+1)*4);
+
+  cl_kernel kernel;
+  cl_int err;
+
+  kernel = clCreateKernel(program, "matmulInputCache", &err);
+
+  int numchannel = m_cols;
+  int addslot = (4-(numchannel%4))%4;
+  numchannel = numchannel + addslot;
+  int input_size = m_rows*numchannel;
+  int filter_size = numchannel*n_batch;
+
+  float *inputfloat = (float*)clEnqueueMapBuffer(
+              queue,
+              d_a,
+              CL_TRUE,
+              CL_MAP_WRITE,
+              0,
+              input_size*sizeof(float),
+              0, NULL, NULL, &err);
+  float *filterfloat = (float*)clEnqueueMapBuffer(
+              queue,
+              d_b,
+              CL_TRUE,
+              CL_MAP_WRITE,
+              0,
+              filter_size*sizeof(float),
+              0, NULL, NULL, &err);
+
+
+  for(int i = 0,i2 = 0; i < input_size; i+=numchannel,i2+=m_cols) {
+    for(int j = 0; j < m_cols; j++) {
+      inputfloat[i+j] = matrix[i2+j];
+    }
+    for(int j = m_cols; j < numchannel; j++) {
+      inputfloat[i+j] = 0.0;
+    }
+  }
+  for(int i = 0,i2 = 0; i < filter_size; i+=numchannel,i2+=m_cols) {
+    for(int j = 0; j < m_cols; j++) {
+      filterfloat[i+j] = vector[i2+j];
+    }
+    for(int j = m_cols; j < numchannel; j++) {
+      filterfloat[i+j] = 0.0;
+    }
+  }
+
+  clEnqueueUnmapMemObject(queue,d_a,(void *) inputfloat,0, NULL, NULL);
+  clEnqueueUnmapMemObject(queue,d_b,(void *) filterfloat,0, NULL, NULL);
+
+  err  = clSetKernelArg(kernel, 0, sizeof(cl_mem), &d_a);
+  err  = clSetKernelArg(kernel, 1, sizeof(cl_mem), &d_b);
+  err  = clSetKernelArg(kernel, 2, sizeof(cl_mem), &d_c);
+  err  = clSetKernelArg(kernel, 3, sizeof(int), &m_rows);
+  err  = clSetKernelArg(kernel, 4, sizeof(int), &m_cols);
+  err  = clSetKernelArg(kernel, 5, sizeof(int), &n_batch);
+
+  const size_t local[2] = { matmulWgHeight, matmulWgWidth };
+  const size_t global[2] = { (size_t) ((d_n_batch/4-1)/matmulWgHeight+1)*matmulWgHeight, (size_t) ((m_rows-1)/matmulWgWidth+1)*matmulWgWidth };
+
+  err = clEnqueueNDRangeKernel(queue, kernel, 2, NULL, global, local, 0, NULL, NULL);
+
+  clFinish(queue);
+
+  cl_float *host_result = (cl_float*)clEnqueueMapBuffer(
+            queue,
+            d_c,
+            CL_TRUE,
+            CL_MAP_READ,
+            0,
+            m_rows*d_n_batch*sizeof(float),
+            0, NULL, NULL, NULL);
+
+    for(int i = 0; i < m_rows; i++) {
+      for(int j = 0; j < n_batch; j++) {
+        result[j*m_rows + i] = host_result[i*d_n_batch + j];
+      }
+    }
+
+  clEnqueueUnmapMemObject(queue,d_c,(void *) host_result,0, NULL, NULL);
+
+  clReleaseKernel(kernel);
+
 }
 
 void NeonMatrixBatchVectorMultiplyAccumulate(

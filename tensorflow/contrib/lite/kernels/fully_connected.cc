@@ -65,10 +65,33 @@ constexpr int kOutputTensor = 0;
 constexpr int kShuffledInputWorkspaceTensor = 1;
 constexpr int kScratchBufferTensor = 1;
 
+cl_context context_cl_global = NULL;       
+cl_command_queue queue_global = NULL;
+cl_program program_global = NULL;
+cl_mem cl_mem_arr_global[6];
+
 void* Init(TfLiteContext* context, const char* buffer, size_t length) {
   // This is a builtin op, so we don't use the contents in 'buffer', if any.
   // Instead, we allocate a new object to carry information from Prepare() to
   // Eval().
+  gemm_support::IncrementUsageCounter(context);
+  auto* op_data = new OpData();
+  context->AddTensors(context, 1, &op_data->input_quantized_index);
+  return op_data;
+}
+
+void* InitOpenCL(TfLiteContext* context, const char* buffer, size_t length,
+  cl_context context_cl, cl_command_queue queue, cl_program program, cl_mem cl_mem_arr[6]) {
+  context_cl_global = context_cl;
+  program_global = program;
+  queue_global = queue;
+  cl_mem_arr_global[0] = cl_mem_arr[0];
+  cl_mem_arr_global[1] = cl_mem_arr[1];
+  cl_mem_arr_global[2] = cl_mem_arr[2];
+  cl_mem_arr_global[3] = cl_mem_arr[3];
+  cl_mem_arr_global[4] = cl_mem_arr[4];
+  cl_mem_arr_global[5] = cl_mem_arr[5];
+
   gemm_support::IncrementUsageCounter(context);
   auto* op_data = new OpData();
   context->AddTensors(context, 1, &op_data->input_quantized_index);
@@ -181,9 +204,13 @@ TfLiteStatus EvalPie(TfLiteContext* context, TfLiteNode* node,
   }
 
   // Compute output += weight * input
-  tensor_utils::MatrixBatchVectorMultiplyAccumulate(
+  // tensor_utils::MatrixBatchVectorMultiplyAccumulate(
+  //     filter->data.f, num_units, input_size, input->data.f, batch_size,
+  //     output->data.f, /*result_stride=*/1);
+
+  tensor_utils::MatrixBatchVectorMultiplyAccumulateOpenCL(
       filter->data.f, num_units, input_size, input->data.f, batch_size,
-      output->data.f, /*result_stride=*/1);
+      output->data.f, /*result_stride=*/1, context_cl_global, queue_global, program_global, cl_mem_arr_global);
 
   // Apply activation function
   tensor_utils::ApplyActivationToVector(output->data.f, batch_size * num_units,
@@ -441,28 +468,28 @@ TfLiteStatus Eval(TfLiteContext* context, TfLiteNode* node) {
 TfLiteRegistration* Register_FULLY_CONNECTED_REF() {
   static TfLiteRegistration r = {
       fully_connected::Init, fully_connected::Free, fully_connected::Prepare,
-      fully_connected::Eval<fully_connected::kReference>};
+      fully_connected::Eval<fully_connected::kReference>, nullptr, 0, nullptr, 0, fully_connected::InitOpenCL};
   return &r;
 }
 
 TfLiteRegistration* Register_FULLY_CONNECTED_NEON_OPT() {
   static TfLiteRegistration r = {
       fully_connected::Init, fully_connected::Free, fully_connected::Prepare,
-      fully_connected::Eval<fully_connected::kNeonOptimized>};
+      fully_connected::Eval<fully_connected::kNeonOptimized>, nullptr, 0, nullptr, 0,fully_connected::InitOpenCL};
   return &r;
 }
 
 TfLiteRegistration* Register_FULLY_CONNECTED_GENERIC_OPT() {
   static TfLiteRegistration r = {
       fully_connected::Init, fully_connected::Free, fully_connected::Prepare,
-      fully_connected::Eval<fully_connected::kGenericOptimized>};
+      fully_connected::Eval<fully_connected::kGenericOptimized>, nullptr, 0, nullptr, 0,fully_connected::InitOpenCL};
   return &r;
 }
 
 TfLiteRegistration* Register_FULLY_CONNECTED_PIE() {
   static TfLiteRegistration r = {fully_connected::Init, fully_connected::Free,
                                  fully_connected::Prepare,
-                                 fully_connected::Eval<fully_connected::kPie>};
+                                 fully_connected::Eval<fully_connected::kPie>, nullptr, 0, nullptr, 0,fully_connected::InitOpenCL};
   return &r;
 }
 

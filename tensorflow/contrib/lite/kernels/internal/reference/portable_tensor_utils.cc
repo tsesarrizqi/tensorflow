@@ -21,6 +21,13 @@ limitations under the License.
 #include "tensorflow/contrib/lite/kernels/internal/round.h"
 #include "tensorflow/contrib/lite/kernels/op_macros.h"
 
+#include <android/log.h> 
+#include <stdio.h> 
+#include <stdlib.h> 
+#include <math.h>
+
+#include "CL/cl.h"
+
 #if defined(_MSC_VER)
 #define __restrict__ __restrict
 #endif
@@ -82,6 +89,29 @@ void PortableMatrixBatchVectorMultiplyAccumulate(const float* matrix,
       result_in_batch += result_stride;
     }
   }
+}
+
+void PortableMatrixBatchVectorMultiplyAccumulateOpenCL(const float* matrix,
+                                                 int m_rows, int m_cols,
+                                                 const float* vector,
+                                                 int n_batch, float* result,
+                                                 int result_stride,
+                                                 cl_context context_cl, cl_command_queue queue, cl_program program, cl_mem cl_mem_arr[6]) {
+  // vector per kolom
+  // matrix per baris
+  // result per kolom
+  float* result_in_batch = result;
+  for (int b = 0; b < n_batch; b++) {
+    const float* matrix_ptr = matrix;
+    for (int r = 0; r < m_rows; r++) {
+      const float* vector_in_batch = vector + b * m_cols;
+      for (int c = 0; c < m_cols; c++) {
+        *result_in_batch += *matrix_ptr++ * *vector_in_batch++;
+      }
+      result_in_batch += result_stride;
+    }
+  }
+
 }
 
 void PortableMatrixBatchVectorMultiplyAccumulate(

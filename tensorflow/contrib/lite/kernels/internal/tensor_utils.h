@@ -17,6 +17,8 @@ limitations under the License.
 
 #include "tensorflow/contrib/lite/builtin_op_data.h"
 
+#include "CL/cl.h"
+
 #if defined(_MSC_VER)
 #define __restrict__ __restrict
 #endif
@@ -54,6 +56,13 @@ void MatrixBatchVectorMultiplyAccumulate(const float* matrix, int m_rows,
                                          int m_cols, const float* vector,
                                          int n_batch, float* result,
                                          int result_stride);
+
+// with OpenCL
+void MatrixBatchVectorMultiplyAccumulateOpenCL(const float* matrix, int m_rows,
+                                         int m_cols, const float* vector,
+                                         int n_batch, float* result,
+                                         int result_stride,
+                                         cl_context context_cl, cl_command_queue queue, cl_program program, cl_mem cl_mem_arr[6]);
 
 // Same as the function above, but for values quantized using symmetric
 // quantization (e.g. by calling SymmetricQuantizeFloats).

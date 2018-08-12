@@ -34,6 +34,23 @@ limitations under the License.
 #include "tensorflow/contrib/lite/kernels/op_macros.h"
 #include "tensorflow/contrib/lite/kernels/padding.h"
 
+#include "CL/cl.h"
+
+#include <android/log.h> 
+#include <stdio.h> 
+#include <stdlib.h> 
+#include <math.h>
+#include <string.h>
+#include <time.h>
+#include <sys/time.h>
+
+
+// OpenCL objects
+cl_context context_cl_global = NULL;       
+cl_command_queue queue_global = NULL;
+cl_program program_global = NULL;
+cl_mem cl_mem_arr_global[6];
+
 namespace tflite {
 namespace ops {
 namespace builtin {
@@ -85,6 +102,25 @@ void* Init(TfLiteContext* context, const char* buffer, size_t length) {
   // This is a builtin op, so we don't use the contents in 'buffer', if any.
   // Instead, we allocate a new object to use as scratch space for im2col, and
   // to carry information from Prepare() to Eval().
+  auto* data = new OpData;
+  gemm_support::IncrementUsageCounter(context);
+  eigen_support::IncrementUsageCounter(context);
+  return data;
+}
+
+// with OpenCL
+void* InitOpenCL(TfLiteContext* context, const char* buffer, size_t length,
+  cl_context context_cl, cl_command_queue queue, cl_program program, cl_mem cl_mem_arr[6]) {
+  context_cl_global = context_cl;
+  program_global = program;
+  queue_global = queue;
+  cl_mem_arr_global[0] = cl_mem_arr[0];
+  cl_mem_arr_global[1] = cl_mem_arr[1];
+  cl_mem_arr_global[2] = cl_mem_arr[2];
+  cl_mem_arr_global[3] = cl_mem_arr[3];
+  cl_mem_arr_global[4] = cl_mem_arr[4];
+  cl_mem_arr_global[5] = cl_mem_arr[5];
+
   auto* data = new OpData;
   gemm_support::IncrementUsageCounter(context);
   eigen_support::IncrementUsageCounter(context);
@@ -416,15 +452,26 @@ void EvalFloat(TfLiteContext* context, TfLiteNode* node,
       } else {
         filter_data = GetTensorData<float>(filter);
       }
-      multithreaded_ops::Conv(
+      // multithreaded_ops::Conv(
+      //     *eigen_support::GetThreadPoolDevice(context),
+      //     GetTensorData<float>(input), GetTensorDims(input), filter_data,
+      //     GetTensorDims(filter), GetTensorData<float>(bias),
+      //     GetTensorDims(bias), params->stride_width, params->stride_height,
+      //     data->padding.width, data->padding.height, params->padding,
+      //     output_activation_min, output_activation_max,
+      //     GetTensorData<float>(output), GetTensorDims(output),
+      //     GetTensorData<float>(im2col), GetTensorDims(im2col));
+      // with OpenCL
+      multithreaded_ops::ConvOpenCL(
           *eigen_support::GetThreadPoolDevice(context),
-          GetTensorData<float>(input), GetTensorDims(input), filter_data,
+          GetTensorData<float>(input), GetTensorDims(input), GetTensorData<float>(filter), filter_data,
           GetTensorDims(filter), GetTensorData<float>(bias),
           GetTensorDims(bias), params->stride_width, params->stride_height,
           data->padding.width, data->padding.height, params->padding,
           output_activation_min, output_activation_max,
           GetTensorData<float>(output), GetTensorDims(output),
-          GetTensorData<float>(im2col), GetTensorDims(im2col));
+          GetTensorData<float>(im2col), GetTensorDims(im2col),
+          context_cl_global, queue_global, program_global, cl_mem_arr_global);
       break;
     }
     case kCblasOptimized: {
@@ -494,25 +541,25 @@ TfLiteStatus Eval(TfLiteContext* context, TfLiteNode* node) {
 
 TfLiteRegistration* Register_CONVOLUTION_REF() {
   static TfLiteRegistration r = {conv::Init, conv::Free, conv::Prepare,
-                                 conv::Eval<conv::kReference>};
+                                 conv::Eval<conv::kReference>, nullptr, 0, nullptr, 0, conv::InitOpenCL};
   return &r;
 }
 
 TfLiteRegistration* Register_CONVOLUTION_GENERIC_OPT() {
   static TfLiteRegistration r = {conv::Init, conv::Free, conv::Prepare,
-                                 conv::Eval<conv::kGenericOptimized>};
+                                 conv::Eval<conv::kGenericOptimized>, nullptr, 0, nullptr, 0, conv::InitOpenCL};
   return &r;
 }
 
 TfLiteRegistration* Register_CONVOLUTION_MULTITHREADED_OPT() {
   static TfLiteRegistration r = {conv::Init, conv::Free, conv::Prepare,
-                                 conv::Eval<conv::kMultithreadOptimized>};
+                                 conv::Eval<conv::kMultithreadOptimized>, nullptr, 0, nullptr, 0, conv::InitOpenCL};
   return &r;
 }
 
 TfLiteRegistration* Register_CONVOLUTION_CBLAS_OPT() {
   static TfLiteRegistration r = {conv::Init, conv::Free, conv::Prepare,
-                                 conv::Eval<conv::kCblasOptimized>};
+                                 conv::Eval<conv::kCblasOptimized>, nullptr, 0, nullptr, 0, conv::InitOpenCL};
   return &r;
 }
 

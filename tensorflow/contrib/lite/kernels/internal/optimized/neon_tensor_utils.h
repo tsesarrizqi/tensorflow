@@ -21,6 +21,8 @@ limitations under the License.
 #include "tensorflow/contrib/lite/kernels/internal/optimized/cpu_check.h"
 #include "tensorflow/contrib/lite/kernels/internal/optimized/tensor_utils_impl.h"
 
+#include "CL/cl.h"
+
 namespace tflite {
 namespace tensor_utils {
 
@@ -30,6 +32,16 @@ void MatrixBatchVectorMultiplyAccumulate(const float* matrix, int m_rows,
                                          int result_stride) {
   NEON_OR_PORTABLE(MatrixBatchVectorMultiplyAccumulate, matrix, m_rows, m_cols,
                    vector, n_batch, result, result_stride);
+}
+
+// with OpenCL
+void MatrixBatchVectorMultiplyAccumulateOpenCL(const float* matrix, int m_rows,
+                                         int m_cols, const float* vector,
+                                         int n_batch, float* result,
+                                         int result_stride, 
+                                         cl_context context_cl, cl_command_queue queue, cl_program program, cl_mem cl_mem_arr[6]) {
+  NEON_OR_PORTABLE(MatrixBatchVectorMultiplyAccumulateOpenCL, matrix, m_rows, m_cols,
+                   vector, n_batch, result, result_stride, context_cl, queue, program, cl_mem_arr);
 }
 
 void MatrixBatchVectorMultiplyAccumulate(

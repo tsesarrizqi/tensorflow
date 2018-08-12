@@ -28,6 +28,149 @@ limitations under the License.
 #endif
 #include "tensorflow/contrib/lite/version.h"
 
+#include "CL/cl.h"
+
+#include <vector>
+#include <string.h>
+#include <assert.h>
+#include <stdexcept>
+#include <cmath>
+#include <string>
+#include <iostream>
+#include <android/log.h> 
+#include <stdio.h> 
+
+// OpenCL objects
+cl_platform_id cpPlatform = NULL;
+cl_device_id device_id = NULL;    
+cl_context context_cl = NULL;       
+cl_command_queue queueCL = NULL;
+cl_program program = NULL;
+cl_mem d_conv_input = NULL;
+cl_mem d_conv_filter = NULL;
+cl_mem d_conv_bias = NULL;
+cl_mem d_conv_output = NULL;
+cl_mem d_conv_dim_sizes = NULL;
+cl_mem d_conv_dim_strides = NULL;
+
+int openCLBufferSizes[4] = {4200000, 2100000, 1024, 4200000};
+
+const char *kernelSource =           "\n" \
+"__kernel void convFilterAndImageCache(__global float4* input_data,    \n" \
+"          __global float4* filter_data,    \n" \
+"          __global float4* output_data,   \n" \
+"          int stride_width, int stride_height,    \n" \
+"          int pad_width, int pad_height,    \n" \
+"          int xsize, int ysize,    \n" \
+"          __global int* dim_sizes, __global int* dim_strides) {   \n" \
+"     \n" \
+"    __local float4 localfilter[CONV_WG_HEIGHT][4*CONV_WG_HEIGHT]; \n" \
+"    __local float4 localinput[2*CONV_WG_HEIGHT][CONV_WG_HEIGHT+CONV_WG_WIDTH]; \n" \
+"    int local_y = get_local_id(0);   \n" \
+"    int local_x = get_local_id(1);   \n" \
+"    int ychannel = get_global_id(0);   \n" \
+"    int xchannel = get_global_id(1);   \n" \
+"    int output_depth = dim_sizes[7];   \n" \
+"    int out_x = xchannel\%xsize;   \n" \
+"    int out_y = ychannel\%ysize;   \n" \
+"    int out_channel = (xchannel/xsize)*4;   \n" \
+"    int batch = ychannel/ysize;   \n" \
+"    int in_width = dim_sizes[1];   \n" \
+"    int in_height = dim_sizes[2];   \n" \
+"    int filter_width = dim_sizes[5];   \n" \
+"    int filter_height = dim_sizes[6];   \n" \
+"    float4 total = {0.0,0.0,0.0,0.0};   \n" \
+"      for (int in_channel = 0; in_channel < dim_sizes[0]/4; ++in_channel) {   \n" \
+"        int tmp1 = in_channel*dim_strides[4] + local_x*dim_strides[5]/4 + local_y*dim_strides[6]/4;  \n" \
+"        int tmp2 = dim_strides[7]/4;  \n" \
+"        if((local_y < dim_sizes[6]) && (local_x < dim_sizes[5])) {   \n" \
+"          localfilter[local_y][local_x] = filter_data[tmp1 + out_channel*tmp2];   \n" \
+"          if(out_channel+1 < output_depth) localfilter[local_y][local_x + CONV_WG_HEIGHT] = filter_data[tmp1 + (out_channel+1)*tmp2];   \n" \
+"          if(out_channel+2 < output_depth) localfilter[local_y][local_x + 2*CONV_WG_HEIGHT] = filter_data[tmp1 + (out_channel+2)*tmp2];   \n" \
+"          if(out_channel+3 < output_depth) localfilter[local_y][local_x + 3*CONV_WG_HEIGHT] = filter_data[tmp1 + (out_channel+3)*tmp2];   \n" \
+"        }   \n" \
+"        tmp1 = in_channel*dim_strides[0] + batch*dim_strides[3]/4;  \n" \
+"        tmp2 = dim_strides[1]/4;  \n" \
+"        int tmp3 = dim_strides[2]/4;  \n" \
+"        if((out_x < in_width) && (out_y < in_height))\n" \
+"          localinput[local_y][local_x] = input_data[tmp1 + out_x*tmp2 + out_y*tmp3];\n" \
+"        if((out_x < in_width) && ((out_y+CONV_WG_HEIGHT) < in_height) && (local_y < filter_height))\n" \
+"          localinput[local_y+CONV_WG_HEIGHT][local_x] = input_data[tmp1 + out_x*tmp2 + (out_y+CONV_WG_HEIGHT)*tmp3];\n" \
+"        if(((out_x+CONV_WG_WIDTH) < in_width) && (out_y < in_height) && (local_x < filter_width))\n" \
+"          localinput[local_y][local_x+CONV_WG_WIDTH] = input_data[tmp1 + (out_x+CONV_WG_WIDTH)*tmp2 + out_y*tmp3];\n" \
+"        if(((out_x+CONV_WG_WIDTH) < in_width) && ((out_y+CONV_WG_HEIGHT) < in_height) && (local_x < filter_width) && (local_y < filter_height))\n" \
+"          localinput[local_y+CONV_WG_HEIGHT][local_x+CONV_WG_WIDTH] = input_data[tmp1 + (out_x+CONV_WG_WIDTH)*tmp2 + (out_y+CONV_WG_HEIGHT)*tmp3];\n" \
+"        barrier(CLK_LOCAL_MEM_FENCE);   \n" \
+"        if((out_x < dim_sizes[13]) && (out_y < dim_sizes[14])) {   \n" \
+"          for (int filter_y = 0; filter_y < filter_height; ++filter_y) {   \n" \
+"            for (int filter_x = 0; filter_x < filter_width; ++filter_x) {   \n" \
+"              int in_x = local_x + filter_x;   \n" \
+"              int in_y = local_y + filter_y;\n" \
+"              if ((in_x >= 0) && (in_x < in_width) && (in_y >= 0) &&   \n" \
+"                  (in_y < in_height)) {   \n" \
+"                float4 input_value = localinput[in_y][in_x];\n" \
+"                //float4 input_value = input_data[in_channel*dim_strides[0] + in_x*dim_strides[1]/4 + in_y*dim_strides[2]/4 + batch*dim_strides[3]/4];   \n" \
+"                total.x += dot(input_value,localfilter[filter_y][filter_x]);   \n" \
+"                total.y += dot(input_value,localfilter[filter_y][filter_x + CONV_WG_HEIGHT]);   \n" \
+"                total.z += dot(input_value,localfilter[filter_y][filter_x + 2*CONV_WG_HEIGHT]);   \n" \
+"                total.w += dot(input_value,localfilter[filter_y][filter_x + 3*CONV_WG_HEIGHT]);   \n" \
+"              }   \n" \
+"            }   \n" \
+"          }   \n" \
+"        }   \n" \
+"        barrier(CLK_LOCAL_MEM_FENCE);   \n" \
+"      }  \n" \
+"      if((out_x < dim_sizes[13]) && (out_y < dim_sizes[14])) {   \n" \
+"        output_data[out_channel*dim_strides[12]/4 + out_x*dim_strides[13] + out_y*dim_strides[14] + batch*dim_strides[15]] = total; \n" \
+"      }   \n" \
+"} \n" \
+"__kernel void matmulInputCache(__global float4* input_data,    \n" \
+"          __global float4* filter_data,    \n" \
+"          __global float4* output_data,   \n" \
+"          int m_rows, int m_cols, int n_batch) {   \n" \
+"    const int row = get_local_id(1);  \n" \
+"    const int col = get_local_id(0);  \n" \
+"    const int globalRow = MATMUL_WG_WIDTH*get_group_id(1) + row;   \n" \
+"    int globalCol = MATMUL_WG_WIDTH*get_group_id(0) + row;  \n" \
+"    float4 acc = { 0.0, 0.0, 0.0, 0.0 };      \n" \
+"    int tiledColRow = 0;     \n" \
+"    __local float4 Asub[MATMUL_WG_WIDTH][MATMUL_WG_HEIGHT];      \n" \
+"    __local float4 Bsub[MATMUL_WG_HEIGHT][MATMUL_WG_WIDTH];      \n" \
+"    for(int t = 0; t < ((m_cols/4-1)/MATMUL_WG_HEIGHT+1); t++) {      \n" \
+"        tiledColRow = t*MATMUL_WG_HEIGHT + col;       \n" \
+"        if((globalRow < m_rows) && (tiledColRow < m_cols/4)) {     \n" \
+"           Asub[row][col] = input_data[globalRow*(m_cols/4) + tiledColRow];     \n" \
+"        }      \n" \
+"        else {     \n" \
+"           float4 tmp = { 0.0, 0.0, 0.0, 0.0 }; \n" \
+"           Asub[row][col] = tmp;     \n" \
+"        }     \n" \
+"        if((globalCol < n_batch) && (tiledColRow < m_cols/4)) {     \n" \
+"           Bsub[col][row] = filter_data[globalCol*(m_cols/4) + tiledColRow];     \n" \
+"        }      \n" \
+"        else {     \n" \
+"           float4 tmp = { 0.0, 0.0, 0.0, 0.0 }; \n" \
+"           Bsub[col][row] = tmp;     \n" \
+"        }     \n" \
+"        barrier(CLK_LOCAL_MEM_FENCE);      \n" \
+"       \n" \
+"        for(int k = 0; k < MATMUL_WG_HEIGHT; k++) { \n" \
+"          float4 valA = Asub[row][k]; \n" \
+"          acc.x += dot(valA,Bsub[k][col*4+0]); \n" \
+"          acc.y += dot(valA,Bsub[k][col*4+1]); \n" \
+"          acc.z += dot(valA,Bsub[k][col*4+2]); \n" \
+"          acc.w += dot(valA,Bsub[k][col*4+3]); \n" \
+"        } \n" \
+"        barrier(CLK_LOCAL_MEM_FENCE);      \n" \
+"    }   \n" \
+"    \n" \
+"    globalCol = (MATMUL_WG_HEIGHT*get_group_id(0) + col)*4;    \n" \
+"    if((globalCol < n_batch) && (globalRow < m_rows)) {     \n" \
+"      output_data[globalRow*((n_batch-1)/4+1) + globalCol/4] = acc;     \n" \
+"    }      \n" \
+"}      \n" \
+"\n";
+
 namespace tflite {
 
 namespace {
@@ -793,10 +936,33 @@ TfLiteStatus ParseOpData(const Operator* op, BuiltinOperator op_type,
 
 }  // namespace
 
+void initOpenCL() {
+  cl_int err;
+
+  err = clGetPlatformIDs(1, &cpPlatform, NULL); 
+  err = clGetDeviceIDs(cpPlatform, CL_DEVICE_TYPE_GPU, 1, &device_id, NULL);
+  context_cl = clCreateContext(0, 1, &device_id, NULL, NULL, &err);
+  queueCL = clCreateCommandQueue(context_cl, device_id, 0, &err);
+  program = clCreateProgramWithSource(context_cl, 1,
+                          (const char **) & kernelSource, NULL, &err);
+
+  clBuildProgram(program, 0, NULL, "-DCONV_WG_HEIGHT=8 -DCONV_WG_WIDTH=16 -DMATMUL_WG_HEIGHT=8 -DMATMUL_WG_WIDTH=32", NULL, NULL);
+ 
+  d_conv_input = clCreateBuffer(context_cl, CL_MEM_READ_ONLY | CL_MEM_ALLOC_HOST_PTR, openCLBufferSizes[0]*sizeof(float), NULL, NULL);
+  d_conv_filter = clCreateBuffer(context_cl, CL_MEM_READ_ONLY | CL_MEM_ALLOC_HOST_PTR, openCLBufferSizes[1]*sizeof(float), NULL, NULL);
+  d_conv_output = clCreateBuffer(context_cl, CL_MEM_WRITE_ONLY | CL_MEM_ALLOC_HOST_PTR, openCLBufferSizes[3]*sizeof(float), NULL, NULL);
+  d_conv_dim_sizes = clCreateBuffer(context_cl, CL_MEM_READ_ONLY, 16*sizeof(int), NULL, NULL);
+  d_conv_dim_strides = clCreateBuffer(context_cl, CL_MEM_READ_ONLY, 16*sizeof(int), NULL, NULL);
+}
+
 TfLiteStatus InterpreterBuilder::ParseNodes(
     const flatbuffers::Vector<flatbuffers::Offset<Operator>>* operators,
     Interpreter* interpreter) {
   TfLiteStatus status = kTfLiteOk;
+
+  // create OpenCL objects
+  initOpenCL();
+
   for (int i = 0; i < operators->Length(); ++i) {
     const auto* op = operators->Get(i);
     int index = op->opcode_index();
@@ -824,20 +990,43 @@ TfLiteStatus InterpreterBuilder::ParseNodes(
           EnumNameBuiltinOperator(op_type));
     }
 
-    if (op->custom_options()) {
-      interpreter->AddNodeWithParameters(
-          FlatBufferIntArrayToVector(op->inputs()),
-          FlatBufferIntArrayToVector(op->outputs()),
-          reinterpret_cast<const char*>(op->custom_options()->data()),
-          op->custom_options()->size(), nullptr, registration);
-    } else {
-      void* builtin_data = nullptr;
-      TF_LITE_ENSURE_STATUS(
-          ParseOpData(op, op_type, error_reporter_, &builtin_data));
-      interpreter->AddNodeWithParameters(
-          FlatBufferIntArrayToVector(op->inputs()),
-          FlatBufferIntArrayToVector(op->outputs()), nullptr, 0, builtin_data,
-          registration);
+    // operators code: 3 convolution, 9 fully connected
+    if((op_type == 9) || (op_type == 3)) {
+      cl_mem cl_mem_arr[6] = {d_conv_input,d_conv_filter,d_conv_bias,d_conv_output,d_conv_dim_sizes,d_conv_dim_strides};
+      if (op->custom_options()) {
+        interpreter->AddNodeWithParametersOpenCL(
+            FlatBufferIntArrayToVector(op->inputs()),
+            FlatBufferIntArrayToVector(op->outputs()),
+            reinterpret_cast<const char*>(op->custom_options()->data()),
+            op->custom_options()->size(), nullptr, registration,
+            context_cl, queueCL, program, cl_mem_arr);
+      } else {
+        void* builtin_data = nullptr;
+        TF_LITE_ENSURE_STATUS(
+            ParseOpData(op, op_type, error_reporter_, &builtin_data));
+        interpreter->AddNodeWithParametersOpenCL(
+            FlatBufferIntArrayToVector(op->inputs()),
+            FlatBufferIntArrayToVector(op->outputs()), nullptr, 0, builtin_data,
+            registration,
+            context_cl, queueCL, program, cl_mem_arr);
+      }
+    }
+    else { 
+      if (op->custom_options()) {
+        interpreter->AddNodeWithParameters(
+            FlatBufferIntArrayToVector(op->inputs()),
+            FlatBufferIntArrayToVector(op->outputs()),
+            reinterpret_cast<const char*>(op->custom_options()->data()),
+            op->custom_options()->size(), nullptr, registration);
+      } else {
+        void* builtin_data = nullptr;
+        TF_LITE_ENSURE_STATUS(
+            ParseOpData(op, op_type, error_reporter_, &builtin_data));
+        interpreter->AddNodeWithParameters(
+            FlatBufferIntArrayToVector(op->inputs()),
+            FlatBufferIntArrayToVector(op->outputs()), nullptr, 0, builtin_data,
+            registration);
+      }
     }
   }
 
