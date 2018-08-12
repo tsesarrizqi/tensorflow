@@ -104,8 +104,9 @@ void NeonMatrixBatchVectorMultiplyAccumulate(const float* matrix, int m_rows,
   }
 }
 
-size_t matmulWgHeight = 8;
-size_t matmulWgWidth = 32;
+size_t matmulWgHeight = MATMUL_WG_HEIGHT;
+size_t matmulWgWidth = 4*MATMUL_WG_HEIGHT;
+static cl_kernel kernel = NULL; 
 
 void NeonMatrixBatchVectorMultiplyAccumulateOpenCL(const float* matrix, int m_rows,
                                              int m_cols, const float* vector,
@@ -123,10 +124,11 @@ void NeonMatrixBatchVectorMultiplyAccumulateOpenCL(const float* matrix, int m_ro
 
   int d_n_batch = (((n_batch-1)/4+1)*4);
 
-  cl_kernel kernel;
   cl_int err;
 
-  kernel = clCreateKernel(program, "matmulInputCache", &err);
+  if(kernel == NULL) {
+    kernel = clCreateKernel(program, "matmulInputCache", &err);
+  }
 
   int numchannel = m_cols;
   int addslot = (4-(numchannel%4))%4;

@@ -180,10 +180,10 @@ inline void Conv(const Eigen::ThreadPoolDevice& device, const float* input_data,
 
 static cl_kernel kernelconvFilterAndImageCache = NULL;
 static cl_kernel kernelmatmulInputCache = NULL;
-size_t convWgHeight = 8;
-size_t convWgWidth = 16;
-size_t matmulWgHeight = 8;
-size_t matmulWgWidth = 32;
+size_t convWgHeight = CONV_WG_HEIGHT;
+size_t convWgWidth = CONV_WG_WIDTH;
+size_t matmulWgHeight = MATMUL_WG_HEIGHT;
+size_t matmulWgWidth = 4*MATMUL_WG_HEIGHT;
 
 inline void OpenCLConv(const float* input_data, int input_size,
           const float* filter_data, int filter_size,

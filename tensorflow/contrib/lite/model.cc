@@ -32,6 +32,7 @@ limitations under the License.
 
 #include <vector>
 #include <string.h>
+#include <cstring>
 #include <assert.h>
 #include <stdexcept>
 #include <cmath>
@@ -946,7 +947,10 @@ void initOpenCL() {
   program = clCreateProgramWithSource(context_cl, 1,
                           (const char **) & kernelSource, NULL, &err);
 
-  clBuildProgram(program, 0, NULL, "-DCONV_WG_HEIGHT=8 -DCONV_WG_WIDTH=16 -DMATMUL_WG_HEIGHT=8 -DMATMUL_WG_WIDTH=32", NULL, NULL);
+  char kernelMacros[100];
+  sprintf(kernelMacros, "-DMATMUL_WG_HEIGHT=%d -DMATMUL_WG_WIDTH=%d -DCONV_WG_HEIGHT=%d -DCONV_WG_WIDTH=%d", 
+      MATMUL_WG_HEIGHT, 4*MATMUL_WG_HEIGHT, CONV_WG_HEIGHT, CONV_WG_WIDTH);
+  clBuildProgram(program, 0, NULL, kernelMacros, NULL, NULL);
  
   d_conv_input = clCreateBuffer(context_cl, CL_MEM_READ_ONLY | CL_MEM_ALLOC_HOST_PTR, openCLBufferSizes[0]*sizeof(float), NULL, NULL);
   d_conv_filter = clCreateBuffer(context_cl, CL_MEM_READ_ONLY | CL_MEM_ALLOC_HOST_PTR, openCLBufferSizes[1]*sizeof(float), NULL, NULL);
