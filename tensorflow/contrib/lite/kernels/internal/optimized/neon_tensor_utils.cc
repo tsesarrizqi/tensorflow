@@ -106,7 +106,7 @@ void NeonMatrixBatchVectorMultiplyAccumulate(const float* matrix, int m_rows,
 
 size_t matmulWgHeight = MATMUL_WG_HEIGHT;
 size_t matmulWgWidth = 4*MATMUL_WG_HEIGHT;
-static cl_kernel kernel = NULL; 
+static cl_kernel kernelMatmul = NULL; 
 
 void NeonMatrixBatchVectorMultiplyAccumulateOpenCL(const float* matrix, int m_rows,
                                              int m_cols, const float* vector,
@@ -126,8 +126,8 @@ void NeonMatrixBatchVectorMultiplyAccumulateOpenCL(const float* matrix, int m_ro
 
   cl_int err;
 
-  if(kernel == NULL) {
-    kernel = clCreateKernel(program, "matmulInputCache", &err);
+  if(kernelMatmul == NULL) {
+    kernelMatmul = clCreateKernel(program, "matmulInputCache", &err);
   }
 
   int numchannel = m_cols;
@@ -174,19 +174,21 @@ void NeonMatrixBatchVectorMultiplyAccumulateOpenCL(const float* matrix, int m_ro
   clEnqueueUnmapMemObject(queue,d_a,(void *) inputfloat,0, NULL, NULL);
   clEnqueueUnmapMemObject(queue,d_b,(void *) filterfloat,0, NULL, NULL);
 
-  err  = clSetKernelArg(kernel, 0, sizeof(cl_mem), &d_a);
-  err  = clSetKernelArg(kernel, 1, sizeof(cl_mem), &d_b);
-  err  = clSetKernelArg(kernel, 2, sizeof(cl_mem), &d_c);
-  err  = clSetKernelArg(kernel, 3, sizeof(int), &m_rows);
-  err  = clSetKernelArg(kernel, 4, sizeof(int), &m_cols);
-  err  = clSetKernelArg(kernel, 5, sizeof(int), &n_batch);
+  err  = clSetKernelArg(kernelMatmul, 0, sizeof(cl_mem), &d_a);
+  err  = clSetKernelArg(kernelMatmul, 1, sizeof(cl_mem), &d_b);
+  err  = clSetKernelArg(kernelMatmul, 2, sizeof(cl_mem), &d_c);
+  err  = clSetKernelArg(kernelMatmul, 3, sizeof(int), &m_rows);
+  err  = clSetKernelArg(kernelMatmul, 4, sizeof(int), &m_cols);
+  err  = clSetKernelArg(kernelMatmul, 5, sizeof(int), &n_batch);
 
   const size_t local[2] = { matmulWgHeight, matmulWgWidth };
   const size_t global[2] = { (size_t) ((d_n_batch/4-1)/matmulWgHeight+1)*matmulWgHeight, (size_t) ((m_rows-1)/matmulWgWidth+1)*matmulWgWidth };
 
-  err = clEnqueueNDRangeKernel(queue, kernel, 2, NULL, global, local, 0, NULL, NULL);
+  err = clEnqueueNDRangeKernel(queue, kernelMatmul, 2, NULL, global, local, 0, NULL, NULL);
 
   clFinish(queue);
+
+  __android_log_print(ANDROID_LOG_INFO, "OpenCLDebug", "Matmul Kernel OpenCL Error Code: %d", err);
 
   cl_float *host_result = (cl_float*)clEnqueueMapBuffer(
             queue,
@@ -204,8 +206,6 @@ void NeonMatrixBatchVectorMultiplyAccumulateOpenCL(const float* matrix, int m_ro
     }
 
   clEnqueueUnmapMemObject(queue,d_c,(void *) host_result,0, NULL, NULL);
-
-  clReleaseKernel(kernel);
 
 }
 

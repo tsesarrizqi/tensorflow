@@ -303,7 +303,7 @@ inline void OpenCLConv(const float* input_data, int input_size,
 
     clFinish(queue);
 
-    __android_log_print(ANDROID_LOG_INFO, "OpenCLDebug", "Error Kernel: %d", err);
+    __android_log_print(ANDROID_LOG_INFO, "OpenCLDebug", "Matmul Kernel OpenCL Error Code: %d", err);
 
     cl_float *host_result = (cl_float*)clEnqueueMapBuffer(
             queue,
@@ -346,7 +346,7 @@ inline void OpenCLConv(const float* input_data, int input_size,
 
     clFinish(queue);
 
-    __android_log_print(ANDROID_LOG_INFO, "OpenCLDebug", "Error Kernel: %d", err);
+    __android_log_print(ANDROID_LOG_INFO, "OpenCLDebug", "Conv Kernel OpenCL Error Code: %d", err);
 
     cl_float *host_result = (cl_float*)clEnqueueMapBuffer(
             queue,

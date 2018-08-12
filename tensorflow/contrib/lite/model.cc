@@ -952,6 +952,18 @@ void initOpenCL() {
       MATMUL_WG_HEIGHT, 4*MATMUL_WG_HEIGHT, CONV_WG_HEIGHT, CONV_WG_WIDTH);
   clBuildProgram(program, 0, NULL, kernelMacros, NULL, NULL);
  
+  cl_kernel kernelmatmulInputCache = clCreateKernel(program, "matmulInputCache", NULL);
+  cl_kernel kernelconvFilterAndImageCache = clCreateKernel(program, "convFilterAndImageCache", NULL);
+
+  size_t maxMatmulWgSize;
+  size_t maxConvWgSize;
+
+  clGetKernelWorkGroupInfo(kernelmatmulInputCache, device_id, CL_KERNEL_WORK_GROUP_SIZE, sizeof(size_t), &maxMatmulWgSize, NULL);
+  clGetKernelWorkGroupInfo(kernelconvFilterAndImageCache, device_id, CL_KERNEL_WORK_GROUP_SIZE, sizeof(size_t), &maxConvWgSize, NULL);
+
+  __android_log_print(ANDROID_LOG_INFO, "OpenCLDebug", "Matmul Kernel OpenCL Max Workgroup Size: %d", maxMatmulWgSize);
+  __android_log_print(ANDROID_LOG_INFO, "OpenCLDebug", "Conv Kernel OpenCL Max Workgroup Size: %d", maxConvWgSize);
+
   d_conv_input = clCreateBuffer(context_cl, CL_MEM_READ_ONLY | CL_MEM_ALLOC_HOST_PTR, openCLBufferSizes[0]*sizeof(float), NULL, NULL);
   d_conv_filter = clCreateBuffer(context_cl, CL_MEM_READ_ONLY | CL_MEM_ALLOC_HOST_PTR, openCLBufferSizes[1]*sizeof(float), NULL, NULL);
   d_conv_output = clCreateBuffer(context_cl, CL_MEM_WRITE_ONLY | CL_MEM_ALLOC_HOST_PTR, openCLBufferSizes[3]*sizeof(float), NULL, NULL);
