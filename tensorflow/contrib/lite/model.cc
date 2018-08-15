@@ -41,20 +41,49 @@ limitations under the License.
 #include <android/log.h> 
 #include <stdio.h> 
 
+// for image in convolution, for matrix A in matrix multiplication
+#ifndef FST_IN_BUFF_SIZE
+#define FST_IN_BUFF_SIZE 4200000
+#endif
+// for filter in convolution, for matrix B in matrix multiplication
+#ifndef SND_IN_BUFF_SIZE
+#define SND_IN_BUFF_SIZE 2100000
+#endif
+// for output of matrix multiplication or convolution
+#ifndef OUT_BUFF_SIZE
+#define OUT_BUFF_SIZE 4200000
+#endif
+// not used for now
+#ifndef BIAS_BUFF_SIZE
+#define BIAS_BUFF_SIZE 0
+#endif
+
+// work-group height for matmul kernel, width = 4*height
+#ifndef MATMUL_WG_HEIGHT
+#define MATMUL_WG_HEIGHT 8
+#endif
+// work-group height for conv kernel
+#ifndef CONV_WG_HEIGHT
+#define CONV_WG_HEIGHT 8
+#endif
+// work-group width for conv kernel
+#ifndef CONV_WG_WIDTH
+#define CONV_WG_WIDTH 16
+#endif
+
+
 // OpenCL objects
 cl_platform_id cpPlatform = NULL;
 cl_device_id device_id = NULL;    
 cl_context context_cl = NULL;       
 cl_command_queue queueCL = NULL;
 cl_program program = NULL;
-cl_mem d_conv_input = NULL;
-cl_mem d_conv_filter = NULL;
-cl_mem d_conv_bias = NULL;
-cl_mem d_conv_output = NULL;
-cl_mem d_conv_dim_sizes = NULL;
-cl_mem d_conv_dim_strides = NULL;
-
-int openCLBufferSizes[4] = {4200000, 2100000, 1024, 4200000};
+cl_mem firstInputBuffer = NULL;
+cl_mem secondInBuffer = NULL;
+cl_mem thirdInBuffer = NULL;
+cl_mem outBuffer = NULL;
+cl_mem dimSizesBuffer = NULL;
+cl_mem dimStridesBuffer = NULL;
 
 const char *kernelSource =           "\n" \
 "__kernel void convFilterAndImageCache(__global float4* input_data,    \n" \
@@ -957,18 +986,28 @@ void initOpenCL() {
 
   size_t maxMatmulWgSize;
   size_t maxConvWgSize;
+  cl_ulong globalMemorySize;
+  cl_ulong localMemorySize;
+  cl_ulong maxMemoryAllocationSize;
 
   clGetKernelWorkGroupInfo(kernelmatmulInputCache, device_id, CL_KERNEL_WORK_GROUP_SIZE, sizeof(size_t), &maxMatmulWgSize, NULL);
   clGetKernelWorkGroupInfo(kernelconvFilterAndImageCache, device_id, CL_KERNEL_WORK_GROUP_SIZE, sizeof(size_t), &maxConvWgSize, NULL);
+  clGetDeviceInfo(device_id, CL_DEVICE_GLOBAL_MEM_SIZE, sizeof(cl_ulong), &globalMemorySize, NULL);
+  clGetDeviceInfo(device_id, CL_DEVICE_MAX_MEM_ALLOC_SIZE, sizeof(cl_ulong), &maxMemoryAllocationSize, NULL);
+  clGetDeviceInfo(device_id, CL_DEVICE_LOCAL_MEM_SIZE, sizeof(cl_ulong), &localMemorySize, NULL);
 
+  // Log info about OpenCL memory
   __android_log_print(ANDROID_LOG_INFO, "OpenCLDebug", "Matmul Kernel OpenCL Max Workgroup Size: %d", maxMatmulWgSize);
   __android_log_print(ANDROID_LOG_INFO, "OpenCLDebug", "Conv Kernel OpenCL Max Workgroup Size: %d", maxConvWgSize);
+  __android_log_print(ANDROID_LOG_INFO, "OpenCLDebug", "OpenCL Device Global Memory Size: %d", globalMemorySize);
+  __android_log_print(ANDROID_LOG_INFO, "OpenCLDebug", "OpenCL Device Local Memory Size: %d", localMemorySize);
+  __android_log_print(ANDROID_LOG_INFO, "OpenCLDebug", "OpenCL Device Max Memory Allocation Size: %d", maxMemoryAllocationSize);
 
-  d_conv_input = clCreateBuffer(context_cl, CL_MEM_READ_ONLY | CL_MEM_ALLOC_HOST_PTR, openCLBufferSizes[0]*sizeof(float), NULL, NULL);
-  d_conv_filter = clCreateBuffer(context_cl, CL_MEM_READ_ONLY | CL_MEM_ALLOC_HOST_PTR, openCLBufferSizes[1]*sizeof(float), NULL, NULL);
-  d_conv_output = clCreateBuffer(context_cl, CL_MEM_WRITE_ONLY | CL_MEM_ALLOC_HOST_PTR, openCLBufferSizes[3]*sizeof(float), NULL, NULL);
-  d_conv_dim_sizes = clCreateBuffer(context_cl, CL_MEM_READ_ONLY, 16*sizeof(int), NULL, NULL);
-  d_conv_dim_strides = clCreateBuffer(context_cl, CL_MEM_READ_ONLY, 16*sizeof(int), NULL, NULL);
+  firstInputBuffer = clCreateBuffer(context_cl, CL_MEM_READ_ONLY | CL_MEM_ALLOC_HOST_PTR, FST_IN_BUFF_SIZE*sizeof(float), NULL, NULL);
+  secondInBuffer = clCreateBuffer(context_cl, CL_MEM_READ_ONLY | CL_MEM_ALLOC_HOST_PTR, SND_IN_BUFF_SIZE*sizeof(float), NULL, NULL);
+  outBuffer = clCreateBuffer(context_cl, CL_MEM_WRITE_ONLY | CL_MEM_ALLOC_HOST_PTR, OUT_BUFF_SIZE*sizeof(float), NULL, NULL);
+  dimSizesBuffer = clCreateBuffer(context_cl, CL_MEM_READ_ONLY, 16*sizeof(int), NULL, NULL);
+  dimStridesBuffer = clCreateBuffer(context_cl, CL_MEM_READ_ONLY, 16*sizeof(int), NULL, NULL);
 }
 
 TfLiteStatus InterpreterBuilder::ParseNodes(
@@ -1008,7 +1047,7 @@ TfLiteStatus InterpreterBuilder::ParseNodes(
 
     // operators code: 3 convolution, 9 fully connected
     if((op_type == 9) || (op_type == 3)) {
-      cl_mem cl_mem_arr[6] = {d_conv_input,d_conv_filter,d_conv_bias,d_conv_output,d_conv_dim_sizes,d_conv_dim_strides};
+      cl_mem cl_mem_arr[6] = {firstInputBuffer,secondInBuffer,thirdInBuffer,outBuffer,dimSizesBuffer,dimStridesBuffer};
       if (op->custom_options()) {
         interpreter->AddNodeWithParametersOpenCL(
             FlatBufferIntArrayToVector(op->inputs()),

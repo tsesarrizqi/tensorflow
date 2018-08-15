@@ -41,6 +41,18 @@ limitations under the License.
 #include <time.h>
 #include <sys/time.h>
 
+// work-group height for matmul kernel, width = 4*height
+#ifndef MATMUL_WG_HEIGHT
+#define MATMUL_WG_HEIGHT 8
+#endif
+// work-group height for conv kernel
+#ifndef CONV_WG_HEIGHT
+#define CONV_WG_HEIGHT 8
+#endif
+// work-group width for conv kernel
+#ifndef CONV_WG_WIDTH
+#define CONV_WG_WIDTH 16
+#endif
 
 #ifdef USE_NEON
 
@@ -113,6 +125,12 @@ void NeonMatrixBatchVectorMultiplyAccumulateOpenCL(const float* matrix, int m_ro
                                              int n_batch, float* result,
                                              int result_stride,
                                              cl_context context_cl, cl_command_queue queue, cl_program program, cl_mem cl_mem_arr[6]) {
+
+  // if matrix not big enough, use optimized CPU kernel
+  if(n_batch < matmulWgHeight) {
+    NeonMatrixBatchVectorMultiplyAccumulate(matrix, m_rows, m_cols, vector, n_batch, result, result_stride);
+    return;
+  }
 
   cl_mem d_a = cl_mem_arr[0];
   cl_mem d_b = cl_mem_arr[1];
@@ -188,7 +206,7 @@ void NeonMatrixBatchVectorMultiplyAccumulateOpenCL(const float* matrix, int m_ro
 
   clFinish(queue);
 
-  __android_log_print(ANDROID_LOG_INFO, "OpenCLDebug", "Matmul Kernel OpenCL Error Code: %d", err);
+  __android_log_print(ANDROID_LOG_INFO, "OpenCLDebug", "Fully-connected Layer: Matmul Kernel OpenCL Error Code: %d", err);
 
   cl_float *host_result = (cl_float*)clEnqueueMapBuffer(
             queue,

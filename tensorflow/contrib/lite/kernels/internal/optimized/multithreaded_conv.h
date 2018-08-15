@@ -49,6 +49,19 @@ limitations under the License.
 #include <time.h>
 #include <sys/time.h>
 
+// work-group height for matmul kernel, width = 4*height
+#ifndef MATMUL_WG_HEIGHT
+#define MATMUL_WG_HEIGHT 8
+#endif
+// work-group height for conv kernel
+#ifndef CONV_WG_HEIGHT
+#define CONV_WG_HEIGHT 8
+#endif
+// work-group width for conv kernel
+#ifndef CONV_WG_WIDTH
+#define CONV_WG_WIDTH 16
+#endif
+
 namespace tflite {
 namespace multithreaded_ops {
 
@@ -303,7 +316,7 @@ inline void OpenCLConv(const float* input_data, int input_size,
 
     clFinish(queue);
 
-    __android_log_print(ANDROID_LOG_INFO, "OpenCLDebug", "Matmul Kernel OpenCL Error Code: %d", err);
+    __android_log_print(ANDROID_LOG_INFO, "OpenCLDebug", "Convolution Layer: Matmul Kernel OpenCL Error Code: %d", err);
 
     cl_float *host_result = (cl_float*)clEnqueueMapBuffer(
             queue,
@@ -323,7 +336,7 @@ inline void OpenCLConv(const float* input_data, int input_size,
     clEnqueueUnmapMemObject(queue,d_output,(void *) host_result,0, NULL, NULL);
     clFinish(queue);
   }
-  else if((dim_sizes[6] < convWgHeight) && (dim_sizes[5] < convWgHeight) && (stride_width == 1) && (stride_height == 1) && (pad_width == 0) && (pad_height == 0)) {
+  else if((dim_sizes[6] <= convWgHeight) && (dim_sizes[5] <= convWgHeight) && (stride_width == 1) && (stride_height == 1) && (pad_width == 0) && (pad_height == 0)) {
     int xsize = ((output_width-1)/convWgWidth+1)*convWgWidth;
     int ysize = ((output_height-1)/convWgHeight+1)*convWgHeight;
 
@@ -346,7 +359,7 @@ inline void OpenCLConv(const float* input_data, int input_size,
 
     clFinish(queue);
 
-    __android_log_print(ANDROID_LOG_INFO, "OpenCLDebug", "Conv Kernel OpenCL Error Code: %d", err);
+    __android_log_print(ANDROID_LOG_INFO, "OpenCLDebug", "Convolution Layer: Conv Kernel OpenCL Error Code: %d", err);
 
     cl_float *host_result = (cl_float*)clEnqueueMapBuffer(
             queue,
@@ -458,7 +471,7 @@ inline void ConvOpenCL(const Eigen::ThreadPoolDevice& device, const float* input
       bias_data, bias_dims, output_data, output_dims, output_activation_min,
       output_activation_max);
   }
-  else if((sizes[6] < 8) && (sizes[5] < 8) && (stride_width == 1) && (stride_height == 1) && (pad_width == 0) && (pad_height == 0)) {
+  else if((sizes[6] <= convWgHeight) && (sizes[5] <= convWgHeight) && (stride_width == 1) && (stride_height == 1) && (pad_width == 0) && (pad_height == 0)) {
     OpenCLConv(input_data, input_size,
           filter_data, filter_size,
           bias_data, bias_size,
@@ -474,6 +487,7 @@ inline void ConvOpenCL(const Eigen::ThreadPoolDevice& device, const float* input
       output_activation_max);
   }
   else {
+      // if not 1x1 filter and filter size bigger than work-group size, use optimized CPU kernel
       Conv(device, input_data, input_dims,
         preprocessed_filter_data, filter_dims,
         bias_data, bias_dims,
