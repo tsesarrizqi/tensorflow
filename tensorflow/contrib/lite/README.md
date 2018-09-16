@@ -25,3 +25,8 @@ This is modified version of Tensorflow Lite with OpenCL support for Android GPU.
 	- `MATMUL_WG_HEIGHT` : Work-group height for matmul kernel (width = 4*height)
 	- `CONV_WG_HEIGHT` : Work-group height for conv kernel
 	- `CONV_WG_WIDTH` : Work-group width for conv kernel
+
+## Android Log Tags
+	- `OpenCLDebug` : Contains information about OpenCL kernel errors
+	- `ConvRuntime` : Contains information about convolution layers operation (matconv) running time
+	- `FCRuntime` : Contains information about fully-connected layers operation (matmul) running time
