@@ -77,10 +77,20 @@ void* aligned_alloc(size_t alignment, size_t size, void** freeing_buffer) {
 
 }  // namespace
 
+double get_wall_time(){
+    struct timeval time;
+    if (gettimeofday(&time,NULL)){
+        return 0;
+    }
+    return (double)time.tv_sec + (double)time.tv_usec * .000001;
+}
+
 void NeonMatrixBatchVectorMultiplyAccumulate(const float* matrix, int m_rows,
                                              int m_cols, const float* vector,
                                              int n_batch, float* result,
                                              int result_stride) {
+  double wall0 = get_wall_time();
+
   // If v_size is not divisible by kWeightsPerNeonLane, we cannot use the main
   // vectorized loop, and we need to process sequentially. postamble_start shows
   // the start index where this should happen.
@@ -114,6 +124,10 @@ void NeonMatrixBatchVectorMultiplyAccumulate(const float* matrix, int m_rows,
       result_in_batch += result_stride;
     }
   }
+
+  double wall1 = get_wall_time();
+  double runtime = wall1 - wall0;
+  __android_log_print(ANDROID_LOG_INFO, "FCRuntime", "NEON CPU Runtime: %d ms", runtime);
 }
 
 size_t matmulWgHeight = MATMUL_WG_HEIGHT;
@@ -125,6 +139,8 @@ void NeonMatrixBatchVectorMultiplyAccumulateOpenCL(const float* matrix, int m_ro
                                              int n_batch, float* result,
                                              int result_stride,
                                              cl_context context_cl, cl_command_queue queue, cl_program program, cl_mem cl_mem_arr[6]) {
+
+  double wallTotal0 = get_wall_time();
 
   // if matrix not big enough, use optimized CPU kernel
   if(n_batch < matmulWgHeight) {
@@ -192,6 +208,8 @@ void NeonMatrixBatchVectorMultiplyAccumulateOpenCL(const float* matrix, int m_ro
   clEnqueueUnmapMemObject(queue,d_a,(void *) inputfloat,0, NULL, NULL);
   clEnqueueUnmapMemObject(queue,d_b,(void *) filterfloat,0, NULL, NULL);
 
+  clFinish(queue);
+
   err  = clSetKernelArg(kernelMatmul, 0, sizeof(cl_mem), &d_a);
   err  = clSetKernelArg(kernelMatmul, 1, sizeof(cl_mem), &d_b);
   err  = clSetKernelArg(kernelMatmul, 2, sizeof(cl_mem), &d_c);
@@ -202,11 +220,18 @@ void NeonMatrixBatchVectorMultiplyAccumulateOpenCL(const float* matrix, int m_ro
   const size_t local[2] = { matmulWgHeight, matmulWgWidth };
   const size_t global[2] = { (size_t) ((d_n_batch/4-1)/matmulWgHeight+1)*matmulWgHeight, (size_t) ((m_rows-1)/matmulWgWidth+1)*matmulWgWidth };
 
+  double wallKernel0 = get_wall_time();
+
   err = clEnqueueNDRangeKernel(queue, kernelMatmul, 2, NULL, global, local, 0, NULL, NULL);
 
   clFinish(queue);
 
+  double wallKernel1 = get_wall_time();
+  double runtimeKernel = wallKernel1 - wallKernel0;
+
   __android_log_print(ANDROID_LOG_INFO, "OpenCLDebug", "Fully-connected Layer: Matmul Kernel OpenCL Error Code: %d", err);
+  __android_log_print(ANDROID_LOG_INFO, "FCRuntime", "OpenCL GPU Runtime (kernel only): %d ms", runtimeKernel);
+
 
   cl_float *host_result = (cl_float*)clEnqueueMapBuffer(
             queue,
@@ -224,6 +249,12 @@ void NeonMatrixBatchVectorMultiplyAccumulateOpenCL(const float* matrix, int m_ro
     }
 
   clEnqueueUnmapMemObject(queue,d_c,(void *) host_result,0, NULL, NULL);
+
+  clFinish(queue);
+
+  double wallTotal1 = get_wall_time();
+  double runtimeTotal = wallTotal1 - wallTotal0;
+  __android_log_print(ANDROID_LOG_INFO, "FCRuntime", "OpenCL GPU Runtime (total): %d ms", runtimeTotal);
 
 }
 

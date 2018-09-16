@@ -162,6 +162,14 @@ class EigenTensorConvFunctor {
   }
 };
 
+inline double get_wall_time(){
+    struct timeval time;
+    if (gettimeofday(&time,NULL)){
+        return 0;
+    }
+    return (double)time.tv_sec + (double)time.tv_usec * .000001;
+}
+
 inline void Conv(const Eigen::ThreadPoolDevice& device, const float* input_data,
                  const Dims<4>& input_dims, const float* filter_data,
                  const Dims<4>& filter_dims, const float* bias_data,
@@ -180,6 +188,9 @@ inline void Conv(const Eigen::ThreadPoolDevice& device, const float* input_data,
   const int output_height = ArraySize(output_dims, 2);
   const int output_width = ArraySize(output_dims, 1);
   EigenTensorConvFunctor<float> conv_functor;
+  
+  double wall0 = get_wall_time();
+  
   conv_functor(device, input_data, im2col_data, batches, input_height,
                input_width, input_depth, filter_data, filter_height,
                filter_width, output_depth, stride_height, stride_width,
@@ -189,6 +200,10 @@ inline void Conv(const Eigen::ThreadPoolDevice& device, const float* input_data,
   optimized_ops::AddBiasAndEvalActivationFunction(
       bias_data, bias_dims, output_data, output_dims, output_activation_min,
       output_activation_max);
+
+  double wall1 = get_wall_time();
+  double runtime = wall1 - wall0;
+  __android_log_print(ANDROID_LOG_INFO, "ConvRuntime", "Multithread CPU Runtime: %d ms", runtime);
 }
 
 static cl_kernel kernelconvFilterAndImageCache = NULL;
@@ -207,6 +222,9 @@ inline void OpenCLConv(const float* input_data, int input_size,
           int* dim_sizes, int* dim_strides,
           float output_activation_min, float output_activation_max,
           cl_context context, cl_command_queue queue, cl_program program, cl_mem cl_mem_arr[6]) {
+  
+  double wallTotal0 = get_wall_time();
+
   cl_mem d_input = cl_mem_arr[0];
   cl_mem d_filter = cl_mem_arr[1];
   cl_mem d_output = cl_mem_arr[3];
@@ -312,11 +330,17 @@ inline void OpenCLConv(const float* input_data, int input_size,
     const size_t local[2] = { matmulWgHeight, matmulWgWidth };
     const size_t global[2] = { (size_t) ((d_output_depth/4-1)/matmulWgHeight+1)*matmulWgHeight, (size_t) ((output_height*output_width*batches-1)/matmulWgWidth+1)*matmulWgWidth };
 
+    double wallKernel0 = get_wall_time();
+
     err = clEnqueueNDRangeKernel(queue, kernelmatmulInputCache, 2, NULL, global, local, 0, NULL, NULL);
 
     clFinish(queue);
 
+    double wallKernel1 = get_wall_time();
+    double runtimeKernel = wallKernel1 - wallKernel0;
+
     __android_log_print(ANDROID_LOG_INFO, "OpenCLDebug", "Convolution Layer: Matmul Kernel OpenCL Error Code: %d", err);
+    __android_log_print(ANDROID_LOG_INFO, "ConvRuntime", "OpenCL GPU Runtime (kernel only): %d ms", runtimeKernel);
 
     cl_float *host_result = (cl_float*)clEnqueueMapBuffer(
             queue,
@@ -334,7 +358,6 @@ inline void OpenCLConv(const float* input_data, int input_size,
     }
 
     clEnqueueUnmapMemObject(queue,d_output,(void *) host_result,0, NULL, NULL);
-    clFinish(queue);
   }
   else if((dim_sizes[6] <= convWgHeight) && (dim_sizes[5] <= convWgHeight) && (stride_width == 1) && (stride_height == 1) && (pad_width == 0) && (pad_height == 0)) {
     int xsize = ((output_width-1)/convWgWidth+1)*convWgWidth;
@@ -354,12 +377,18 @@ inline void OpenCLConv(const float* input_data, int input_size,
 
     const size_t local[2] = { convWgHeight, convWgWidth };
     const size_t global[2] = { (size_t) ysize*batches, (size_t) xsize*d_output_depth/4 };
+
+    double wallKernel0 = get_wall_time();
     
     err = clEnqueueNDRangeKernel(queue, kernelconvFilterAndImageCache, 2, NULL, global, local, 0, NULL, NULL);
 
     clFinish(queue);
 
+    double wallKernel1 = get_wall_time();
+    double runtimeKernel = wallKernel1 - wallKernel0;
+
     __android_log_print(ANDROID_LOG_INFO, "OpenCLDebug", "Convolution Layer: Conv Kernel OpenCL Error Code: %d", err);
+    __android_log_print(ANDROID_LOG_INFO, "ConvRuntime", "OpenCL GPU Runtime (kernel only): %d ms", runtimeKernel);
 
     cl_float *host_result = (cl_float*)clEnqueueMapBuffer(
             queue,
@@ -377,8 +406,13 @@ inline void OpenCLConv(const float* input_data, int input_size,
     }
 
     clEnqueueUnmapMemObject(queue,d_output,(void *) host_result,0, NULL, NULL);
-    clFinish(queue);
   }
+
+  clFinish(queue);
+
+  double wallTotal1 = get_wall_time();
+  double runtimeTotal = wallTotal1 - wallTotal0;
+  __android_log_print(ANDROID_LOG_INFO, "ConvRuntime", "OpenCL GPU Runtime (total): %d ms", runtimeTotal);
 }
 
 inline void ConvOpenCL(const Eigen::ThreadPoolDevice& device, const float* input_data,
