@@ -452,26 +452,26 @@ void EvalFloat(TfLiteContext* context, TfLiteNode* node,
       } else {
         filter_data = GetTensorData<float>(filter);
       }
-      // multithreaded_ops::Conv(
-      //     *eigen_support::GetThreadPoolDevice(context),
-      //     GetTensorData<float>(input), GetTensorDims(input), filter_data,
-      //     GetTensorDims(filter), GetTensorData<float>(bias),
-      //     GetTensorDims(bias), params->stride_width, params->stride_height,
-      //     data->padding.width, data->padding.height, params->padding,
-      //     output_activation_min, output_activation_max,
-      //     GetTensorData<float>(output), GetTensorDims(output),
-      //     GetTensorData<float>(im2col), GetTensorDims(im2col));
-      // with OpenCL
-      multithreaded_ops::ConvOpenCL(
+      multithreaded_ops::Conv(
           *eigen_support::GetThreadPoolDevice(context),
-          GetTensorData<float>(input), GetTensorDims(input), GetTensorData<float>(filter), filter_data,
+          GetTensorData<float>(input), GetTensorDims(input), filter_data,
           GetTensorDims(filter), GetTensorData<float>(bias),
           GetTensorDims(bias), params->stride_width, params->stride_height,
           data->padding.width, data->padding.height, params->padding,
           output_activation_min, output_activation_max,
           GetTensorData<float>(output), GetTensorDims(output),
-          GetTensorData<float>(im2col), GetTensorDims(im2col),
-          context_cl_global, queue_global, program_global, cl_mem_arr_global);
+          GetTensorData<float>(im2col), GetTensorDims(im2col));
+      //// with OpenCL
+      // multithreaded_ops::ConvOpenCL(
+      //     *eigen_support::GetThreadPoolDevice(context),
+      //     GetTensorData<float>(input), GetTensorDims(input), GetTensorData<float>(filter), filter_data,
+      //     GetTensorDims(filter), GetTensorData<float>(bias),
+      //     GetTensorDims(bias), params->stride_width, params->stride_height,
+      //     data->padding.width, data->padding.height, params->padding,
+      //     output_activation_min, output_activation_max,
+      //     GetTensorData<float>(output), GetTensorDims(output),
+      //     GetTensorData<float>(im2col), GetTensorDims(im2col),
+      //     context_cl_global, queue_global, program_global, cl_mem_arr_global);
       break;
     }
     case kCblasOptimized: {

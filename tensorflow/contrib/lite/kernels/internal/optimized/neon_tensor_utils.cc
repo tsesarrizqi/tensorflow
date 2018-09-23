@@ -127,7 +127,7 @@ void NeonMatrixBatchVectorMultiplyAccumulate(const float* matrix, int m_rows,
 
   double wall1 = get_wall_time();
   double runtime = wall1 - wall0;
-  __android_log_print(ANDROID_LOG_INFO, "FCRuntime", "NEON CPU Runtime: %d ms", runtime);
+  __android_log_print(ANDROID_LOG_INFO, "FCRuntime", "NEON CPU Runtime: %lf ms", runtime);
 }
 
 size_t matmulWgHeight = MATMUL_WG_HEIGHT;
@@ -230,7 +230,7 @@ void NeonMatrixBatchVectorMultiplyAccumulateOpenCL(const float* matrix, int m_ro
   double runtimeKernel = wallKernel1 - wallKernel0;
 
   __android_log_print(ANDROID_LOG_INFO, "OpenCLDebug", "Fully-connected Layer: Matmul Kernel OpenCL Error Code: %d", err);
-  __android_log_print(ANDROID_LOG_INFO, "FCRuntime", "OpenCL GPU Runtime (kernel only): %d ms", runtimeKernel);
+  __android_log_print(ANDROID_LOG_INFO, "FCRuntime", "OpenCL GPU Runtime (kernel only): %lf ms", runtimeKernel);
 
 
   cl_float *host_result = (cl_float*)clEnqueueMapBuffer(
@@ -254,7 +254,7 @@ void NeonMatrixBatchVectorMultiplyAccumulateOpenCL(const float* matrix, int m_ro
 
   double wallTotal1 = get_wall_time();
   double runtimeTotal = wallTotal1 - wallTotal0;
-  __android_log_print(ANDROID_LOG_INFO, "FCRuntime", "OpenCL GPU Runtime (total): %d ms", runtimeTotal);
+  __android_log_print(ANDROID_LOG_INFO, "FCRuntime", "OpenCL GPU Runtime (total): %lf ms", runtimeTotal);
 
 }
 

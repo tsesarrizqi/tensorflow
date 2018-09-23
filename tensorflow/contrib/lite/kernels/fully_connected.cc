@@ -204,13 +204,13 @@ TfLiteStatus EvalPie(TfLiteContext* context, TfLiteNode* node,
   }
 
   // Compute output += weight * input
-  // tensor_utils::MatrixBatchVectorMultiplyAccumulate(
-  //     filter->data.f, num_units, input_size, input->data.f, batch_size,
-  //     output->data.f, /*result_stride=*/1);
-
-  tensor_utils::MatrixBatchVectorMultiplyAccumulateOpenCL(
+  tensor_utils::MatrixBatchVectorMultiplyAccumulate(
       filter->data.f, num_units, input_size, input->data.f, batch_size,
-      output->data.f, /*result_stride=*/1, context_cl_global, queue_global, program_global, cl_mem_arr_global);
+      output->data.f, /*result_stride=*/1);
+
+  // tensor_utils::MatrixBatchVectorMultiplyAccumulateOpenCL(
+  //     filter->data.f, num_units, input_size, input->data.f, batch_size,
+  //     output->data.f, /*result_stride=*/1, context_cl_global, queue_global, program_global, cl_mem_arr_global);
 
   // Apply activation function
   tensor_utils::ApplyActivationToVector(output->data.f, batch_size * num_units,

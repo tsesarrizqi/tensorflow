@@ -203,7 +203,7 @@ inline void Conv(const Eigen::ThreadPoolDevice& device, const float* input_data,
 
   double wall1 = get_wall_time();
   double runtime = wall1 - wall0;
-  __android_log_print(ANDROID_LOG_INFO, "ConvRuntime", "Multithread CPU Runtime: %d ms", runtime);
+  __android_log_print(ANDROID_LOG_INFO, "ConvRuntime", "Multithread CPU Runtime: %lf ms", runtime);
 }
 
 static cl_kernel kernelconvFilterAndImageCache = NULL;
@@ -340,7 +340,7 @@ inline void OpenCLConv(const float* input_data, int input_size,
     double runtimeKernel = wallKernel1 - wallKernel0;
 
     __android_log_print(ANDROID_LOG_INFO, "OpenCLDebug", "Convolution Layer: Matmul Kernel OpenCL Error Code: %d", err);
-    __android_log_print(ANDROID_LOG_INFO, "ConvRuntime", "OpenCL GPU Runtime (kernel only): %d ms", runtimeKernel);
+    __android_log_print(ANDROID_LOG_INFO, "ConvRuntime", "OpenCL GPU Runtime (kernel only): %lf ms", runtimeKernel);
 
     cl_float *host_result = (cl_float*)clEnqueueMapBuffer(
             queue,
@@ -388,7 +388,7 @@ inline void OpenCLConv(const float* input_data, int input_size,
     double runtimeKernel = wallKernel1 - wallKernel0;
 
     __android_log_print(ANDROID_LOG_INFO, "OpenCLDebug", "Convolution Layer: Conv Kernel OpenCL Error Code: %d", err);
-    __android_log_print(ANDROID_LOG_INFO, "ConvRuntime", "OpenCL GPU Runtime (kernel only): %d ms", runtimeKernel);
+    __android_log_print(ANDROID_LOG_INFO, "ConvRuntime", "OpenCL GPU Runtime (kernel only): %lf ms", runtimeKernel);
 
     cl_float *host_result = (cl_float*)clEnqueueMapBuffer(
             queue,
@@ -412,7 +412,7 @@ inline void OpenCLConv(const float* input_data, int input_size,
 
   double wallTotal1 = get_wall_time();
   double runtimeTotal = wallTotal1 - wallTotal0;
-  __android_log_print(ANDROID_LOG_INFO, "ConvRuntime", "OpenCL GPU Runtime (total): %d ms", runtimeTotal);
+  __android_log_print(ANDROID_LOG_INFO, "ConvRuntime", "OpenCL GPU Runtime (total): %lf ms", runtimeTotal);
 }
 
 inline void ConvOpenCL(const Eigen::ThreadPoolDevice& device, const float* input_data,
